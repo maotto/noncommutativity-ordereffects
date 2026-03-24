@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 import optax
 import time
-from make_data import D1, D2
 import random
 
 # Experimental settings -----
@@ -15,8 +14,20 @@ n_orders_train = 2  # how many randomly chosen orders to train on
 n_orders_test = 0  # how many randomly chosen orders to test on
 
 # Dataset settings -----
-scores = [0.1, 0.9] # goodness scores for dataset 1 
-rescale_coefficient = 0.9 # percentage of rescaling for dataset 2 
+# dataset = 1
+dataset = 2
+if dataset == 1:
+    from make_data import d1 as artificial_data_sampler
+    rescale_coefficients = [0.0, 0.027, 0.056, 0.074, 0.093, 0.14, 0.18, 0.25, 0.32]
+    # scores = [0.1, 0.9]  # goodness scores for dataset 1
+elif dataset == 2:
+    from make_data import d2 as artificial_data_sampler
+
+    # rescale_coefficients = list(np.linspace(0, 1, 11))
+    rescale_coefficients = [0.9] # percentage of rescaling for dataset 2
+
+else:
+    raise ValueError(f"{dataset=}")
 
 epochs = 150  # number of training steps
 
@@ -112,57 +123,50 @@ def update(params, opt_state):
     params = optax.apply_updates(params, updates)
     return params, loss, opt_state
 
+for rescale_coefficient in rescale_coefficients:
+    histories_train = []
+    histories_test = []
+    non_commute = []
+    for i in range(n_runs):
+        # pick random initial parameters
+        params = np.array([[[rng_params.uniform(low=-math.pi, high=math.pi) for i in range(4)] for i in range(n_obs) ]] * n_obs)
 
-histories_train = []
-histories_test = []
-non_commute = []
-for i in range(n_runs):
-    # pick random initial parameters
-    params = np.array([[[rng_params.uniform(low=-math.pi, high=math.pi) for i in range(4)] for i in range(n_obs) ]] * n_obs)
-
-    # pick unique random orders
-    random_orders = []
-    while len(random_orders) < (n_orders_test + n_orders_train):
-        candidate = list(range(n_obs))
-        random.shuffle(candidate)
-        if candidate not in random_orders:
-            random_orders.append(candidate)
-    orders_train = random_orders[:n_orders_train]
+        # pick unique random orders
+        random_orders = []
+        while len(random_orders) < (n_orders_test + n_orders_train):
+            candidate = list(range(n_obs))
+            random.shuffle(candidate)
+            if candidate not in random_orders:
+                random_orders.append(candidate)
+        orders_train = random_orders[:n_orders_train]
 
 
-    # generate random instances of the data distributions
-    targets_train = jnp.stack(
-        [
-            artificial_data_sampler2(np.asarray(order), rescale_coefficient = rescale_coefficient, seed = 123)
-            for order in orders_train
-        ]
-    )
+        # generate random instances of the data distributions
+        targets_train = jnp.stack(
+            [
+                artificial_data_sampler(np.asarray(order), rescale_coefficient = rescale_coefficient, seed = 123)
+                for order in orders_train
+            ]
+        )
 
-    opt = optax.adam(learning_rate=0.1)
-    opt_state = opt.init(params)
+        opt = optax.adam(learning_rate=0.1)
+        opt_state = opt.init(params)
 
-    loss_history_train = []
-    loss_history_test = []
-    commute_score = [] 
-    for j in range(epochs):
-        print("step", i)
-        time0 = time.time()
-        commute_score.append(get_noncommutativity(params))
-        params, loss, opt_state = update(params, opt_state)
-        loss_history_train.append(loss)
+        loss_history_train = []
+        loss_history_test = []
+        commute_score = []
+        for j in range(epochs):
+            print("step", i)
+            time0 = time.time()
+            commute_score.append(get_noncommutativity(params))
+            params, loss, opt_state = update(params, opt_state)
+            loss_history_train.append(loss)
 
-    non_commute.append(commute_score)
-    histories_train.append(loss_history_train)
-    print("Run " + str(i) + " is completed!")
+        non_commute.append(commute_score)
+        histories_train.append(loss_history_train)
+        print("Run " + str(i) + " is completed!")
 
-a = np.array(histories_train)
-c = np.array(non_commute)
-np.savetxt(
-    f"noncommutativity-order-effects/results/dataset2-{n_obs}_score-{rescale_coefficient}_train_.csv",
-    a,
-)
-
-np.savetxt(
-    f"noncommutativity-order-effects/results/datase2-{n_obs}_score-{rescale_coefficient}_commute.csv",
-    c,
-)
+    a = np.array(histories_train)
+    c = np.array(non_commute)
+    np.savetxt(f"results_noncommute/dataset{dataset}__n_obs{n_obs}__rescale{rescale_coefficient}_train_.csv", a)
+    np.savetxt(f"results_noncommute/dataset{dataset}__n_obs{n_obs}__rescale{rescale_coefficient}_commute.csv", c)
